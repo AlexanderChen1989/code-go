@@ -5,10 +5,6 @@ import (
 	"time"
 )
 
-/*
-	1,2,3,4 -> 5,6,7,8 -> 6,8
-*/
-
 type Observer interface {
 	OnNext(int)
 	OnComplete()
@@ -22,6 +18,7 @@ type Observable interface {
 func Map(ob Observable, mapper func(int) int) Observable {
 	m := &MapOp{
 		mapper: mapper,
+		obs:    Observers{},
 	}
 	ob.Subscribe(m)
 	return m
@@ -30,13 +27,40 @@ func Map(ob Observable, mapper func(int) int) Observable {
 func Filter(ob Observable, filter func(int) bool) Observable {
 	f := &FilterOp{
 		filter: filter,
+		obs:    Observers{},
 	}
 	ob.Subscribe(f)
 	return f
 }
 
+type Observers struct {
+	obss []Observer
+}
+
+func (obss *Observers) Subscribe(obs Observer) {
+	obss.obss = append(obss.obss, obs)
+}
+
+func (obss *Observers) OnNext(next int) {
+	for _, obs := range obss.obss {
+		obs.OnNext(next)
+	}
+}
+
+func (obss *Observers) OnComplete() {
+	for _, obs := range obss.obss {
+		obs.OnComplete()
+	}
+}
+
+func (obss *Observers) OnError(err error) {
+	for _, obs := range obss.obss {
+		obs.OnError(err)
+	}
+}
+
 type MapOp struct {
-	obs    Observer
+	obs    Observers
 	mapper func(int) int
 }
 
@@ -53,11 +77,11 @@ func (m *MapOp) OnError(err error) {
 }
 
 func (m *MapOp) Subscribe(obs Observer) {
-	m.obs = obs
+	m.obs.Subscribe(obs)
 }
 
 type FilterOp struct {
-	obs    Observer
+	obs    Observers
 	filter func(int) bool
 }
 
@@ -76,7 +100,7 @@ func (m *FilterOp) OnError(err error) {
 }
 
 func (m *FilterOp) Subscribe(obs Observer) {
-	m.obs = obs
+	m.obs.Subscribe(obs)
 }
 
 type Counter struct {
@@ -125,18 +149,22 @@ func (c *Combinator) Filter(filter func(int) bool) *Combinator {
 	return c
 }
 
-func (c *Combinator) Subscribe(obs Observer) {
+func (c *Combinator) Subscribe(obs Observer) *Combinator {
 	c.ob.Subscribe(obs)
+	return c
 }
 
 func main() {
-	c := &Counter{}
+	counter := &Counter{}
 
-	From(c).Map(func(v int) int {
+	c := From(counter).Map(func(v int) int {
 		return v + 10
 	}).Filter(func(v int) bool {
 		return v%2 == 0
-	}).Subscribe(&IntObserver{})
+	})
 
-	c.Start()
+	c.Subscribe(&IntObserver{})
+	c.Subscribe(&IntObserver{})
+
+	counter.Start()
 }
