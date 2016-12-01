@@ -82,7 +82,7 @@ type Train struct {
 }
 
 type Source struct {
-	obs Observer
+	obs    Observer
 	emitFn func(Observer)
 }
 
@@ -108,7 +108,7 @@ func (t *Train) Map(mapper func(int) int) *Train {
 
 func (t *Train) Filter(filter func(int) bool) *Train {
 	f := &FilterOp{filter: filter}
-	t.ob.Subscribe(f) 
+	t.ob.Subscribe(f)
 	t.ob = f
 	return t
 }
@@ -118,7 +118,6 @@ func (t *Train) Subscribe(obs Observer) {
 	t.source.Start()
 }
 
-
 func main() {
 	obs := From(func(ob Observer) {
 		for i := 0; i < 20; i++ {
@@ -126,16 +125,12 @@ func main() {
 			time.Sleep(50 * time.Millisecond)
 		}
 		ob.OnComplete()
-	}).Map(
-		addOne,
-	).Filter(
-		odd,
-	)
+	}).Map(addOne).Filter(odd)
 
-	obs.Subscribe(&IntObserver{})
-	obs.Subscribe(&IntObserver{})
+	go obs.Subscribe(&IntObserver{})
+	go obs.Subscribe(&IntObserver{})
+	time.Sleep(100 * time.Second)
 }
 
-func addOne(v int) int { return v + 1}
-func odd(v int) bool { return v%2 != 0}
-
+func addOne(v int) int { return v + 1 }
+func odd(v int) bool   { return v%2 != 0 }
