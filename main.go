@@ -5,6 +5,10 @@ import (
 	"time"
 )
 
+/*
+	1,2,3,4 -> 5,6,7,8 -> 6,8
+*/
+
 type Observer interface {
 	OnNext(int)
 	OnComplete()
@@ -15,52 +19,8 @@ type Observable interface {
 	Subscribe(Observer)
 }
 
-func Map(ob Observable, mapper func(int) int) Observable {
-	m := &MapOp{
-		mapper: mapper,
-		obs:    Observers{},
-	}
-	ob.Subscribe(m)
-	return m
-}
-
-func Filter(ob Observable, filter func(int) bool) Observable {
-	f := &FilterOp{
-		filter: filter,
-		obs:    Observers{},
-	}
-	ob.Subscribe(f)
-	return f
-}
-
-type Observers struct {
-	obss []Observer
-}
-
-func (obss *Observers) Subscribe(obs Observer) {
-	obss.obss = append(obss.obss, obs)
-}
-
-func (obss *Observers) OnNext(next int) {
-	for _, obs := range obss.obss {
-		obs.OnNext(next)
-	}
-}
-
-func (obss *Observers) OnComplete() {
-	for _, obs := range obss.obss {
-		obs.OnComplete()
-	}
-}
-
-func (obss *Observers) OnError(err error) {
-	for _, obs := range obss.obss {
-		obs.OnError(err)
-	}
-}
-
 type MapOp struct {
-	obs    Observers
+	obs    Observer
 	mapper func(int) int
 }
 
@@ -77,11 +37,11 @@ func (m *MapOp) OnError(err error) {
 }
 
 func (m *MapOp) Subscribe(obs Observer) {
-	m.obs.Subscribe(obs)
+	m.obs = obs
 }
 
 type FilterOp struct {
-	obs    Observers
+	obs    Observer
 	filter func(int) bool
 }
 
@@ -100,23 +60,7 @@ func (m *FilterOp) OnError(err error) {
 }
 
 func (m *FilterOp) Subscribe(obs Observer) {
-	m.obs.Subscribe(obs)
-}
-
-type Counter struct {
-	obs Observer
-}
-
-func (c *Counter) Subscribe(obs Observer) {
-	c.obs = obs
-}
-
-func (c *Counter) Start() {
-	for i := 0; i < 10; i++ {
-		c.obs.OnNext(i)
-		time.Sleep(time.Second)
-	}
-	c.obs.OnComplete()
+	m.obs = obs
 }
 
 type IntObserver struct{}
@@ -131,40 +75,67 @@ func (obs *IntObserver) OnError(err error) {
 	fmt.Println("error", err)
 }
 
-type Combinator struct {
+type Train struct {
 	ob Observable
+
+	source *Source
 }
 
-func From(ob Observable) *Combinator {
-	return &Combinator{ob: ob}
+type Source struct {
+	obs Observer
+	emitFn func(Observer)
 }
 
-func (c *Combinator) Map(mapper func(int) int) *Combinator {
-	c.ob = Map(c.ob, mapper)
-	return c
+func (c *Source) Subscribe(obs Observer) {
+	c.obs = obs
 }
 
-func (c *Combinator) Filter(filter func(int) bool) *Combinator {
-	c.ob = Filter(c.ob, filter)
-	return c
+func (c *Source) Start() {
+	c.emitFn(c.obs)
 }
 
-func (c *Combinator) Subscribe(obs Observer) *Combinator {
-	c.ob.Subscribe(obs)
-	return c
+func From(fn func(Observer)) *Train {
+	s := &Source{emitFn: fn}
+	return &Train{source: s, ob: s}
 }
+
+func (t *Train) Map(mapper func(int) int) *Train {
+	m := &MapOp{mapper: mapper}
+	t.ob.Subscribe(m)
+	t.ob = m
+	return t
+}
+
+func (t *Train) Filter(filter func(int) bool) *Train {
+	f := &FilterOp{filter: filter}
+	t.ob.Subscribe(f) 
+	t.ob = f
+	return t
+}
+
+func (t *Train) Subscribe(obs Observer) {
+	t.ob.Subscribe(obs)
+	t.source.Start()
+}
+
 
 func main() {
-	counter := &Counter{}
+	obs := From(func(ob Observer) {
+		for i := 0; i < 20; i++ {
+			ob.OnNext(i)
+			time.Sleep(50 * time.Millisecond)
+		}
+		ob.OnComplete()
+	}).Map(
+		addOne,
+	).Filter(
+		odd,
+	)
 
-	c := From(counter).Map(func(v int) int {
-		return v + 10
-	}).Filter(func(v int) bool {
-		return v%2 == 0
-	})
-
-	c.Subscribe(&IntObserver{})
-	c.Subscribe(&IntObserver{})
-
-	counter.Start()
+	obs.Subscribe(&IntObserver{})
+	obs.Subscribe(&IntObserver{})
 }
+
+func addOne(v int) int { return v + 1}
+func odd(v int) bool { return v%2 != 0}
+
